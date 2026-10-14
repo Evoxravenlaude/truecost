@@ -8,36 +8,39 @@ The perp cost forecast that publishes its own accuracy. Before you open a levera
 
 It then watches positions you already hold and warns you on Telegram, and it logs every forecast and scores it later, so the accuracy is public.
 
-This repo has three parts that share one engine (`src/engine.js`):
+One Node process runs everything, sharing one engine (`src/engine.js`):
 
-| Part | What it is | Run with |
-|---|---|---|
-| Telegram bot + alerts | `/cost`, `/watch`, alerts every 10 min, hourly data refresh | `npm start` |
-| Accuracy log | Daily reference forecasts, scored when their hold time ends | runs inside `npm start` |
-| Web page | One self-contained HTML file with walkthrough, checker, watcher, track record | `npm run build:web` |
+| Part | What it does |
+|---|---|
+| Website | The TrueCost OS page on `$PORT`, rebuilt every hour from live Hyperliquid + Lighter data. Visitors can paste a wallet to read their positions. |
+| Telegram bot | `/cost`, `/watch`, `/positions`, `/alert`, `/record`. Position alerts every 10 minutes. Runs only if `TELEGRAM_BOT_TOKEN` is set. |
+| Accuracy log | A reference forecast per market each day, scored when its hold time ends. Served at `/api/accuracy` and by `/record`. |
 
-## Quick start
+Routes: `/` (the site), `/health` (status JSON), `/api/snapshot`, `/api/accuracy`, `/api/positions?wallet=0x…` (read-only, 10 lookups a minute per visitor).
 
-1. Create a bot: message **@BotFather** in Telegram, send `/newbot`, copy the token.
-2. Set up:
-   ```bash
-   cp .env.example .env        # paste the token into TELEGRAM_BOT_TOKEN
-   npm install
-   npm run check               # pulls live data from both venues once and prints it
-   npm start
-   ```
-3. In Telegram, open your bot and send `/start`.
+## Run it locally
+
+```bash
+cp .env.example .env     # paste your bot token, or leave it empty for website only
+npm install
+npm run check            # pulls live data from both venues once and prints it
+npm start                # then open http://localhost:3000
+```
 
 Needs Node 20+ and outbound HTTPS to `api.hyperliquid.xyz` and `mainnet.zklighter.elliot.ai`. No API keys: everything used is public.
 
-## Deploy (Railway)
+## Deploy on Railway
 
-1. New project → Deploy from GitHub repo (or `railway up` from this folder). Railway detects Node and runs `npm start`.
-2. Variables: `TELEGRAM_BOT_TOKEN`, `DATA_DIR=/data`.
-3. Add a **Volume** mounted at `/data`. Users, wallets and the forecast log live there; without a volume they reset on every deploy.
-4. One instance only. The bot uses long polling, and two instances with the same token will fight over updates.
+1. Push this folder to a GitHub repo (private is fine).
+2. Railway → New Project → Deploy from GitHub repo → pick it. `railway.json` sets the start command and a `/health` check.
+3. Variables: `TELEGRAM_BOT_TOKEN` (from @BotFather) and `DATA_DIR=/data`.
+4. Attach a **Volume** mounted at `/data`. Users, wallets and the forecast log live there; without it they reset on every deploy.
+5. Settings → Networking → Generate Domain. Railway sets `PORT`; the app listens on it.
+6. Keep one replica. The bot uses long polling, and two copies with the same token fight over updates (error 409). Stop any local `npm start` too.
 
-Any host that keeps a Node process running works the same way (Fly, Render, a VPS with `pm2`).
+Check it worked: `https://<your-domain>/health` should show `"live": true`, `"markets": 11` and your bot's `@username` within a minute of starting.
+
+Any host that keeps a Node process running works the same way (Render, Fly, a VPS with `pm2`).
 
 ## Bot commands
 
@@ -65,7 +68,7 @@ Alerts: liquidation within your threshold (critical under half of it), funding l
 
 ## Web page
 
-`npm run build:web` writes `dist/truecost.html`, one file with the engine, the latest snapshot and its backtest inlined. It uses `data/snapshot.web.json` (written by the running service every hour, or by `npm run check`) and falls back to `web/snapshot.sample.json` (13 Oct 2026). Republish that file wherever the page is hosted to refresh it.
+The running service serves the page itself and rebuilds it every hour. To get a static copy instead, `npm run build:web` writes `dist/index.html` (a full page for any static host) and `dist/truecost.html` (the fragment used for the Claude artifact preview), from `data/snapshot.web.json` if the service has written one, else the bundled `web/snapshot.sample.json` (13 Oct 2026). Wallet reading needs the service, so it only appears on the hosted site.
 
 ## What's confirmed and what's inferred
 
@@ -97,7 +100,9 @@ src/calibration.js   forecast log and scoring
 src/monitor.js       wallet positions -> alerts
 src/commands.js      bot command handlers (testable without Telegram)
 src/format.js        message text
-src/index.js         wires it together (grammY)
+src/webpage.js       builds the page from a snapshot
+src/server.js        website, /health and JSON routes
+src/index.js         wires it together (grammY bot, hourly refresh, alerts)
 web/page.html        web page template
 scripts/             check-live, backtest, build-web
 test/                node:test suite

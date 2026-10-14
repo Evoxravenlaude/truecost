@@ -445,6 +445,11 @@ code{font:500 13px var(--mono);background:var(--win-2);border:1px solid var(--ha
       <div class="wbody">
         <div><span class="kicker">02 · Positions you hold</span><h2 class="h2 two">Watched for you, <em>daily.</em></h2><p class="muted" style="margin-top:6px;max-width:64ch">Add a trade you already have. You'll see how much room it has before liquidation and whether its holding fee is about to turn. The Telegram bot does this on its own and messages you.</p></div>
         <div class="panel">
+          <div id="walletrow" hidden style="display:grid;gap:8px">
+            <span class="kicker">Read my wallet · read-only</span>
+            <form id="walletf" style="display:flex;gap:8px;flex-wrap:wrap"><input class="inp" id="w-addr" placeholder="0x… the address you trade from" autocomplete="off" spellcheck="false" style="flex:1;min-width:220px"><button class="btn small pri" type="submit">Read positions</button></form>
+            <p class="note" id="walletmsg" aria-live="polite">Reads your open Hyperliquid and Lighter positions. Nothing is signed, nothing can move.</p>
+          </div>
           <span class="kicker">Add a position</span>
           <form class="formrow" id="addf">
             <label>Coin<select class="inp" id="a-sym"></select></label>
@@ -480,7 +485,7 @@ code{font:500 13px var(--mono);background:var(--win-2);border:1px solid var(--ha
           <div class="panel" style="align-content:start">
             <span class="kicker">Set up in three steps</span>
             <ol class="steps">
-              <li><div><b>Open the bot, press Start</b><p class="muted">Search for the TrueCost bot in Telegram. <span class="pill p-ex">opens at launch</span></p></div></li>
+              <li><div><b>Open the bot, press Start</b><p class="muted" id="tgstep1">Search for the TrueCost bot in Telegram. <span class="pill p-ex">opens at launch</span></p></div></li>
               <li><div><b>Send your wallet</b><p class="muted"><code>/watch 0x…</code> with the address you trade from. Read-only: it can't move funds or trade.</p></div></li>
               <li><div><b>Pick your warning level</b><p class="muted"><code>/alert 8</code> warns you inside 8% of liquidation. Funding-flip warnings are on by default.</p></div></li>
             </ol>
@@ -948,7 +953,28 @@ const EXAMPLES = [
 ];
 let mine = store.get('positions', []);
 const listPos = () => mine.length ? mine : EXAMPLES;
-const evalPos = (list, shock) => list.map((p, i) => Object.assign(E.position({ sym: p.sym, v: p.v, side: p.side, entry: p.entry, notional: p.margin * p.lev, lev: p.lev }, E.market(p.sym).px * (1 + shock)), { i, ex: p.ex, margin: p.margin }));
+const evalPos = (list, shock) => list.filter(p => E.market(p.sym)).map((p, i) => Object.assign(E.position({ sym: p.sym, v: p.v, side: p.side, entry: p.entry, notional: p.notional || p.margin * p.lev, lev: p.lev, liq: p.liq != null ? p.liq : undefined }, E.market(p.sym).px * (1 + shock)), { i, ex: p.ex, margin: p.margin }));
+/* Live site only: read a wallet through the TrueCost server. */
+const LIVE = window.TC_LIVE || null;
+if (LIVE) {
+  $('walletrow').hidden = false;
+  $('addmsg').textContent = 'Saved in this browser only. Or read your wallet above.';
+  try { $('w-addr').value = store.get('wallet', ''); } catch (_) {}
+  $('walletf').addEventListener('submit', async e => {
+    e.preventDefault(); const addr = $('w-addr').value.trim(), msg = $('walletmsg');
+    if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) { msg.textContent = 'That doesn\'t look like a wallet address: 0x followed by 40 letters and numbers.'; return; }
+    msg.textContent = 'Reading Hyperliquid and Lighter…';
+    try {
+      const r = await fetch('/api/positions?wallet=' + encodeURIComponent(addr)), j = await r.json();
+      if (!r.ok) { msg.textContent = j.error || 'Something went wrong. Try again in a minute.'; return; }
+      mine = j.positions.map(p => ({ sym: p.sym, v: p.v, side: p.side, entry: p.entry, notional: p.notional, margin: p.margin, lev: p.lev, liq: p.liq }));
+      store.set('positions', mine); store.set('wallet', addr); renderWatch(); unlock('watch');
+      msg.textContent = (mine.length ? `Found ${mine.length} open position${mine.length > 1 ? 's' : ''}.` : 'No open positions on Hyperliquid or Lighter for this wallet.')
+        + (j.skipped.length ? ` Not covered yet: ${j.skipped.join(', ')}.` : '') + (j.errors.length ? ` Couldn't reach ${j.errors.join(' and ')} just now.` : '');
+    } catch (_) { msg.textContent = 'Couldn\'t reach the TrueCost server. Check your connection and try again.'; }
+  });
+  if (LIVE.bot) $('tgstep1').innerHTML = `Open <a class="link" href="https://t.me/${LIVE.bot}" target="_blank" rel="noopener">@${LIVE.bot}</a> in Telegram and press Start. <span class="pill p-ok">live</span>`;
+}
 function renderWatch() {
   const shock = +$('shock').value / 100, thr = +$('thr').value / 100;
   $('shockv').textContent = (shock >= 0 ? '+' : '') + pct(shock); $('thrv').textContent = pct(thr, 0);
