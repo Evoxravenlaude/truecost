@@ -156,10 +156,10 @@
       const out = [];
       ps.forEach(p => {
         const n = `${p.sym} ${p.side} on ${VENUES[p.v].name}`;
-        if (p.dist <= 0) out.push({ level: 'critical', text: `${n}: price is past your liquidation level. The position would be closing now.` });
-        else if (p.dist < thr) out.push({ level: p.dist < thr / 2 ? 'critical' : 'warning', text: `${n}: liquidation is ${(p.dist * 100).toFixed(1)}% away. Adding about $${Math.round(p.notional * (thr - p.dist)).toLocaleString('en-US')} of margin would move it back to ${(thr * 100).toFixed(0)}%.` });
-        if (p.dist > 0 && p.pFlip > 0.3) out.push({ level: 'info', text: `${n}: ${Math.round(p.pFlip * 100)}% chance the holding fee changes direction in the next 24 hours. Right now you ${p.paying ? 'pay' : 'get paid'}.` });
-        if (p.dist > 0 && p.carry > 0.004) out.push({ level: 'info', text: `${n}: holding fees are running at about ${(p.carry * 100).toFixed(2)}% of the position per week.` });
+        if (p.dist <= 0) out.push({ level: 'critical', pos: p, text: `${n}: price is past your liquidation level. The position would be closing now.` });
+        else if (p.dist < thr) out.push({ level: p.dist < thr / 2 ? 'critical' : 'warning', pos: p, kind: 'room', text: `${n}: liquidation is ${(p.dist * 100).toFixed(1)}% away. Adding about $${Math.round(p.notional * (thr - p.dist)).toLocaleString('en-US')} of margin would move it back to ${(thr * 100).toFixed(0)}%.` });
+        if (p.dist > 0 && p.pFlip > 0.3) out.push({ level: 'info', pos: p, kind: 'flip', text: `${n}: ${Math.round(p.pFlip * 100)}% chance the holding fee changes direction in the next 24 hours. Right now you ${p.paying ? 'pay' : 'get paid'}.` });
+        if (p.dist > 0 && p.carry > 0.004) out.push({ level: 'info', pos: p, kind: 'carry', text: `${n}: holding fees are running at about ${(p.carry * 100).toFixed(2)}% of the position per week.` });
       });
       return out;
     }

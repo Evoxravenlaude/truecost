@@ -1309,9 +1309,17 @@ setDetail(store.get('detail', 1000), false);
 syncCtl(); renderCheck(false); renderTrophies();
 say('/start', 'me'); say(reply('/start'), 'bot');
 addEventListener('resize', () => { if (!wide()) return; $$('.win').forEach(w => { if (w.hidden) return; const d = $('desk'); if (w.offsetLeft > d.clientWidth - 80) w.style.left = Math.max(8, d.clientWidth - w.offsetWidth - 16) + 'px'; }); });
+/* Inside Telegram (opened from the bot's menu button): tell Telegram we're ready and use the full height. */
+const TG = () => { const w = window.Telegram && window.Telegram.WebApp; return w && w.platform && w.platform !== 'unknown' ? w : null; };
+addEventListener('load', () => { const w = TG(); if (w) { try { w.ready(); w.expand(); } catch (_) {} } });
 boot(() => {
-  const h = (location.hash || '').slice(1);
-  if (WINS[h] && h !== 'bin') WM.open(h);
+  const h = (location.hash || '').slice(1), deep = /^check-([A-Za-z]+)-(long|short)-(\d+)-(\d+)-(\d+)$/.exec(h);
+  if (deep && E.market(deep[1])) {
+    // Deep link from the bot: open the same trade, already filled in.
+    Object.assign(st, { sym: E.market(deep[1]).sym, side: deep[2], margin: Math.max(20, +deep[3]), lev: Math.max(1, +deep[4]), hours: +deep[5] });
+    store.set('onboarded', true); syncCtl(); renderCheck(true); WM.open('check');
+  }
+  else if (WINS[h] && h !== 'bin') WM.open(h);
   else if (!store.get('onboarded', false)) WM.open('wizard');
   else WM.open('check');
 });

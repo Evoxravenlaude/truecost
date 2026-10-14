@@ -1,0 +1,1 @@
+Pixelify Sans, Atkinson Hyperlegible and JetBrains Mono are licensed under the SIL Open Font License 1.1 (https://openfontlicense.org). Files from Google Fonts via the @expo-google-fonts packages.

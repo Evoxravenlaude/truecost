@@ -4,7 +4,9 @@
   "private": true,
   "description": "Perp trade cost forecasts for Hyperliquid and Lighter: web page, Telegram bot, position alerts and a public accuracy log.",
   "main": "src/index.js",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/index.js",
     "check": "node scripts/check-live.js",
@@ -13,6 +15,7 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.0.9",
     "grammy": "^1.46.0"
   }
 }

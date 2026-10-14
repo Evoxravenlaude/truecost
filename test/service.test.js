@@ -7,7 +7,6 @@ const LT = require('../src/venues/lighter');
 const Snapshot = require('../src/snapshot');
 const Store = require('../src/store');
 const { Calibration, dailyForecasts, realized } = require('../src/calibration');
-const { makeCommands } = require('../src/commands');
 const { evaluate, dedupe } = require('../src/monitor');
 const MARKETS = require('../src/markets');
 
@@ -149,26 +148,4 @@ test('positions map to engine positions and alerts dedupe', async () => {
   assert.strictEqual(dedupe(al, ps, sent, NOW).length, al.length);
   assert.strictEqual(dedupe(al, ps, sent, NOW + 60e3).length, 0);
   assert.ok(dedupe(al, ps, sent, NOW + 3 * H).length >= 1); // critical repeats after 2h
-});
-
-test('bot commands', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc-')), store = new Store(dir), cal = new Calibration(store);
-  const s = await mkSnap(), E = TrueCost.create(s);
-  const api = { hl: { positions: async () => HL.parsePositions({ assetPositions: [{ position: { coin: 'ETH', szi: '4', entryPx: '2500', marginUsed: '2000', liquidationPx: '2100', leverage: { type: 'isolated', value: 5 } } }] }) }, lt: { positions: async () => { throw new Error('timeout'); } } };
-  const cmds = makeCommands({ engine: () => E, snapshot: () => s, store, calibration: cal, api });
-  assert.match(await cmds.help(), /\/cost ETH long 25k 5x 3d/);
-  const c = await cmds.cost('1', '/cost ETH long 25k 5x 3d');
-  assert.match(c, /Hyperliquid[\s\S]*Lighter[\s\S]*cheaper/);
-  assert.strictEqual(cal.log().filter(r => r.kind === 'asked').length, 2);
-  assert.match(await cmds.cost('1', '/cost ETH long 25k 99x 3d'), /max 25x[\s\S]*max 50x/);
-  assert.match(await cmds.watch('1', '/watch nope'), /42-character/);
-  const w = await cmds.watch('1', '/watch 0x' + 'a'.repeat(40));
-  assert.match(w, /ETH long 5x · HL/); assert.match(w, /Couldn't reach: Lighter/);
-  assert.deepStrictEqual(store.user('1').wallets, ['0x' + 'a'.repeat(40)]);
-  assert.match(await cmds.alert('1', '/alert 12'), /within 12%/); assert.strictEqual(store.user('1').alertPct, 12);
-  assert.match(await cmds.alerts('1', '/alerts off'), /paused/); assert.strictEqual(store.user('1').alertsOn, false);
-  assert.match(await cmds.record(), /No live forecasts/);
-  assert.match(await cmds.unwatch('1'), /forgotten/);
-  const cold = makeCommands({ engine: () => null, snapshot: () => null, store, calibration: cal });
-  assert.match(await cold.cost('1', '/cost ETH long 1k 2x 1d'), /Still loading/);
 });

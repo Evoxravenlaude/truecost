@@ -12,9 +12,9 @@ const Store = require('./store');
 const WebPage = require('./webpage');
 const { createServer } = require('./server');
 const { Calibration, dailyForecasts } = require('./calibration');
-const { makeCommands, WALLET } = require('./commands');
+const { WALLET } = require('./ui');
+const BotUI = require('./bot');
 const { fetchPositions, evaluate, dedupe } = require('./monitor');
-const F = require('./format');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const PORT = +process.env.PORT || 3000;
@@ -23,7 +23,15 @@ const ALERT_MIN = +process.env.ALERT_MIN || 10;
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
 const store = new Store(DATA_DIR), calibration = new Calibration(store);
-const state = { snap: null, E: null, web: null, html: null, builtAt: null, bot: null, lastError: null, started: new Date().toISOString() };
+const state = { snap: null, E: null, web: null, html: null, builtAt: null, bot: null, lastError: null, started: new Date().toISOString(), backtest: null };
+// Public address of this service, for the Telegram mini app and links. Railway sets RAILWAY_PUBLIC_DOMAIN once a domain exists.
+const APP_URL = (process.env.PUBLIC_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : '')).replace(/\/$/, '');
+const SITE = APP_URL.replace(/^https?:\/\//, '');
+function summarise(rows) {
+  const byH = {}; [24, 72, 168].forEach(h => { const r = rows.filter(x => x.H === h); if (r.length) byH[h] = { n: r.length, rate: r.filter(x => x.hit).length / r.length }; });
+  const syms = [...new Set(rows.map(r => r.sym))];
+  return { n: rows.length, rate: rows.length ? rows.filter(x => x.hit).length / rows.length : 0, byH, byCoin: syms.map(sym => { const r = rows.filter(x => x.sym === sym); return { sym, n: r.length, rate: r.filter(x => x.hit).length / r.length }; }) };
+}
 
 function rebuildPage(web, source) {
   const t0 = Date.now(), { html, forecasts } = WebPage.build(web);
@@ -43,6 +51,7 @@ async function refresh() {
     const scored = calibration.score(s);
     fs.writeFileSync(path.join(DATA_DIR, 'accuracy.json'), JSON.stringify(accuracy()));
     log(`snapshot ${s.asOf}: ${s.markets.length} markets, ${added} forecasts logged, ${scored} scored`);
+    state.backtest = summarise(state.E.backtest());
     rebuildPage(web, 'live data');
   } catch (e) { state.lastError = e.message; log('refresh failed:', e.message); }
 }
@@ -64,27 +73,21 @@ async function positionsFor(wallet, ip) {
 async function startBot(token) {
   const { Bot } = require('grammy');
   const bot = new Bot(token);
-  const cmds = makeCommands({ engine: () => state.E, snapshot: () => state.snap, store, calibration });
-  for (const name of Object.keys(cmds)) {
-    bot.command(name, async c => {
-      try { await c.reply(await cmds[name](String(c.chat.id), c.message.text || '')); }
-      catch (e) { log(`/${name} failed:`, e.message); await c.reply('Something went wrong on my side. Try again in a minute.'); }
-    });
-  }
-  bot.on('message:text', c => c.reply('Send /help to see what I can do.'));
+  const deps = {
+    engine: () => state.E, snapshot: () => state.snap, store, calibration, site: () => SITE, appUrl: () => APP_URL,
+    backtest: () => state.backtest || summarise([]),
+    logAsked: inp => {
+      const start = Date.parse(state.snap.asOf);
+      calibration.add(['hl', 'lt'].map(v => { const f = state.E.funding(inp.sym, v, 1, 1, inp.hours); return { id: `${inp.sym}|${v}|${inp.hours}|${start}|asked`, sym: inp.sym, v, hours: inp.hours, start, p10: f.p10, p50: f.median, p90: f.p90, kind: 'asked' }; }));
+    }
+  };
+  const { ui } = BotUI.attach(bot, deps, log);
   bot.catch(e => log('bot error:', e.message));
   await bot.init();
   state.bot = bot.botInfo.username;
-  await bot.api.setMyCommands([
-    { command: 'cost', description: 'What a trade costs, e.g. /cost ETH long 25k 5x 3d' },
-    { command: 'watch', description: 'Watch a wallet (read-only)' },
-    { command: 'positions', description: 'Positions I\'m watching' },
-    { command: 'alert', description: 'Warn me within N% of liquidation' },
-    { command: 'record', description: 'How accurate the forecasts have been' },
-    { command: 'help', description: 'Everything I can do' }
-  ]).catch(e => log('setMyCommands failed:', e.message));
-  await bot.api.setMyShortDescription('What a perp trade really costs, before you place it. Read-only.').catch(() => {});
+  await BotUI.setupProfile(bot, APP_URL, log);
 
+  // Alerts: one message per check, styled like watch.sys, with buttons back into the app.
   setInterval(async () => {
     if (!state.E) return;
     for (const [chatId, u] of Object.entries(store.users())) {
@@ -93,7 +96,11 @@ async function startBot(token) {
         const { raw } = await fetchPositions(u.wallets);
         const { ps } = evaluate(state.E, raw);
         const fresh = dedupe(state.E.alerts(ps, u.alertPct / 100), ps, u.sent = u.sent || {});
-        if (fresh.length) await bot.api.sendMessage(chatId, fresh.map(F.alertText).join('\n\n'));
+        if (fresh.length) {
+          const kb = [[{ text: 'Open watch.sys', callback_data: 'wn' }]];
+          if (APP_URL) kb[0].push({ text: 'Open in TrueCost OS', web_app: { url: APP_URL + '#watch' } });
+          await bot.api.sendMessage(chatId, fresh.map(ui.alertMessage).join('\n\n'), { parse_mode: 'HTML', reply_markup: { inline_keyboard: kb } });
+        }
         store.saveUser(chatId, u);
       } catch (e) {
         log(`alerts for ${chatId} failed:`, e.message);
@@ -102,7 +109,7 @@ async function startBot(token) {
     }
   }, ALERT_MIN * 60e3);
 
-  bot.start({ onStart: me => log(`bot @${me.username} running`) });
+  bot.start({ onStart: me => log(`bot @${me.username} running${APP_URL ? ', mini app at ' + APP_URL : ''}`) });
   return bot;
 }
 

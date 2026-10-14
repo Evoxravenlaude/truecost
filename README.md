@@ -42,19 +42,25 @@ Check it worked: `https://<your-domain>/health` should show `"live": true`, `"ma
 
 Any host that keeps a Node process running works the same way (Render, Fly, a VPS with `pm2`).
 
-## Bot commands
+## The bot
+
+The bot looks and works like the website. Answers come back as image cards drawn in the TrueCost OS style (`src/cards.js`, fonts bundled in `assets/fonts`), and most things are done by tapping buttons instead of typing.
 
 | Command | What it does |
 |---|---|
-| `/cost ETH long 25k 5x 3d` | Both venues side by side: entry+exit, funding range, liquidation price, total, which is cheaper |
-| `/watch 0x…` | Read-only watch of a wallet's Hyperliquid and Lighter positions (up to 5 wallets) |
-| `/positions` | Current state of watched positions |
-| `/alert 8` | Warn when any position is within 8% of liquidation (default 8) |
-| `/alerts off` / `on` | Pause or resume warnings |
-| `/unwatch` | Forget all wallets |
-| `/record` | Live forecast accuracy |
+| `/start` or `/menu` | The TrueCost OS menu |
+| `/check` | Check a trade in four tapped steps (coin, up/down, money + leverage with a live "room" meter, hold time) |
+| `/cost ETH long 25k 5x 3d` | The same check in one line |
+| `/watch` or `/watch 0x…` | Read-only watch of a wallet's Hyperliquid and Lighter positions (up to 5 wallets) |
+| `/record` | How often the forecasts' 80% ranges held |
+| `/how` | Where every number comes from |
+| `/alert 8`, `/alerts off`, `/unwatch` | Alert level, pause, forget wallets |
 
-Alerts: liquidation within your threshold (critical under half of it), funding likely to flip in the next 24h (over 30% chance), and funding running above 0.4% of the position per week. The same alert isn't repeated within 2h (critical), 6h (warning) or 24h (info).
+On a result card you can step leverage up or down, switch hold time, try a limit order, flip direction, or "roll" the hold to see one simulated price path, all in place. The menu button next to the message box opens the full website inside Telegram (a mini app), and "Open in TrueCost OS" buttons open it on the same trade. The mini app uses `PUBLIC_URL`, or Railway's `RAILWAY_PUBLIC_DOMAIN` when that is set.
+
+Alerts: liquidation within your threshold (critical under half of it), funding likely to flip in the next 24h (over 30% chance), and funding above 0.4% of the position per week. Each comes with the 10-block room bar. The same alert isn't repeated within 2h (critical), 6h (warning) or 24h (info).
+
+For the bot's look in Telegram's own lists, upload `assets/bot/avatar.png` with BotFather's `/setuserpic`, and `assets/bot/description.png` under Edit Bot → Edit Description Picture.
 
 ## How the numbers are made
 
@@ -98,11 +104,12 @@ src/venues/          Hyperliquid and Lighter API clients
 src/snapshot.js      builds the engine snapshot from live data
 src/calibration.js   forecast log and scoring
 src/monitor.js       wallet positions -> alerts
-src/commands.js      bot command handlers (testable without Telegram)
-src/format.js        message text
 src/webpage.js       builds the page from a snapshot
 src/server.js        website, /health and JSON routes
-src/index.js         wires it together (grammY bot, hourly refresh, alerts)
+src/cards.js         image cards for the bot, in the TrueCost OS style
+src/ui.js            bot screens and flows (pure, testable)
+src/bot.js           connects the screens to Telegram (grammY)
+src/index.js         wires it together (web, bot, hourly refresh, alerts)
 web/page.html        web page template
 scripts/             check-live, backtest, build-web
 test/                node:test suite
